@@ -1,0 +1,358 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+% Code listing style
+\lstdefinestyle{codestyle}{
+    backgroundcolor=\color{gray!10},
+    basicstyle=\ttfamily\scriptsize,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!70!black},
+    showstringspaces=false,
+    tabsize=2
+}
+\lstset{style=codestyle}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{TimeTrack Pro: A Serverless Cloud-Based Freelancer Time Tracking and Invoice Generation System on AWS}
+
+\author{\IEEEauthorblockN{Goutham Uppu}
+\IEEEauthorblockA{Student ID: x00000000 \\
+MSc in Cloud Computing \\
+National College of Ireland, Dublin \\
+x00000000@student.ncirl.ie}}
+
+\maketitle
+
+% ============================================================
+% ABSTRACT
+% ============================================================
+\begin{abstract}
+This paper presents the design, development, and deployment of TimeTrack Pro, a serverless cloud-based time tracking and invoice generation system designed for freelancers and independent contractors. The application enables freelancers to manage client relationships, organise projects with configurable billing rates, log working time with a start/stop timer mechanism, and generate professional invoices with automatically aggregated billable hours, line item breakdowns, and tax calculations. The system leverages six Amazon Web Services programmatically through the boto3 SDK: AWS Lambda for serverless compute, Amazon DynamoDB for NoSQL data persistence, Amazon API Gateway for RESTful endpoint management, Amazon S3 for static frontend hosting, Amazon SNS for invoice delivery notifications, and AWS IAM for fine-grained access control. A custom object-oriented Python library called invoice-engine-nci was developed and published on the Python Package Index, providing four primary classes: TimeCalculator for duration computation and billable amount calculations, InvoiceGenerator for comprehensive invoice creation with line items and tax support, InvoiceValidator for input validation across all entity types, and ReportFormatter for consistent data serialization and summary report generation. The library is validated by 46 automated unit tests. The results demonstrate that a serverless architecture using Lambda and DynamoDB can effectively support the complex domain logic of time tracking and invoice generation while maintaining low operational costs and automatic scalability.
+\end{abstract}
+
+% ============================================================
+% INTRODUCTION
+% ============================================================
+\section{Introduction}
+
+The freelance economy has experienced substantial growth over the past decade, with an estimated 1.57 billion freelancers worldwide representing approximately 47\% of the global workforce \cite{freelancestats}. Despite this growth, many freelancers continue to struggle with administrative tasks such as time tracking, invoice generation, and client management, often resorting to manual spreadsheets or expensive subscription-based tools that erode their earnings \cite{cloudpatterns}. Accurate time tracking is essential for freelancers who bill by the hour, as even small inaccuracies in recorded hours can compound into significant revenue losses over time.
+
+The motivation for this project stems from the need for an accessible, low-cost time tracking and invoicing solution that leverages modern cloud architecture to eliminate infrastructure costs during inactive periods. Existing solutions such as Toggl, Harvest, and FreshBooks charge monthly subscription fees regardless of usage, which can be burdensome for freelancers with irregular workloads. A serverless approach using AWS Lambda and DynamoDB offers a fundamentally different cost model where charges are incurred only when the application is actively used, aligning the operational costs with the freelancer's actual billing activity.
+
+The primary objective of this project is to develop a comprehensive serverless time tracking and invoice generation system that enables freelancers to manage clients with contact information and billing preferences, organise projects with hourly rates and budget tracking, log working time using an intuitive start/stop timer mechanism, generate professional invoices with automatic aggregation of billable time entries, and receive notifications when invoices are generated and sent. The application employs six AWS services programmatically and includes a custom Python library that encapsulates the domain logic of time calculation and invoice generation following object-oriented design principles.
+
+% ============================================================
+% PROJECT SPECIFICATION AND REQUIREMENTS
+% ============================================================
+\section{Project Specification and Requirements}
+
+\subsection{Functional Requirements}
+
+The application satisfies a comprehensive set of functional requirements addressing the complete freelancer workflow from client acquisition to invoice delivery. First, the authentication subsystem implements JWT-based user registration and login, ensuring that each freelancer's data is isolated and protected. The system supports secure password hashing and token-based session management with configurable expiration periods.
+
+Second, the client management module provides full CRUD operations for client entities, supporting attributes including client name, company, email, phone, billing address, and default payment terms. Clients serve as the top-level organisational entity, with projects and invoices associated to specific clients. This hierarchical data model reflects the natural relationship structure of freelance engagements.
+
+Third, the project management subsystem enables freelancers to create and manage projects within the context of a client relationship. Each project includes attributes such as project name, description, hourly rate, estimated hours, status (active, completed, archived), and start and end dates. The project entity serves as the billing rate configuration point, determining how time entries logged against the project are valued when invoices are generated.
+
+Fourth, the time logging feature implements a start/stop timer mechanism that accurately records working sessions. Starting the timer creates a time log entry with the current timestamp and a null end time, indicating an active session. Stopping the timer updates the entry with the end timestamp and automatically calculates the duration in hours using the TimeCalculator class from the custom library. The system also supports manual time entry for situations where the real-time timer was not used, with validation to ensure the end time is after the start time and the duration does not exceed 24 hours.
+
+Fifth, the invoice generation feature aggregates all billable time logs for a specified project and date range, calculates line items with quantities (hours) and rates (project hourly rate), applies configurable tax rates, and produces a structured invoice record with a unique invoice number, subtotal, tax amount, and total. When an invoice is generated, an SNS notification is published to alert the freelancer and optionally the client via email. Sixth, the dashboard provides summary statistics including total hours logged, total revenue generated, outstanding invoice amounts, active projects count, and recent activity feeds.
+
+\subsection{Non-Functional Requirements}
+
+The non-functional requirements address scalability, accuracy, security, and cost optimisation. The serverless architecture provides automatic scaling through Lambda's concurrent execution model, handling periods of high invoice generation activity without manual capacity planning. Time calculation accuracy is critical for billing purposes; the TimeCalculator class provides precision to the nearest minute and supports multiple rounding strategies (ceiling, floor, nearest quarter-hour) to align with common freelancer billing practices. Security is enforced through JWT authentication, IAM least-privilege policies, and DynamoDB encryption at rest. Cost efficiency is achieved through the pay-per-request pricing model of both Lambda and DynamoDB, ensuring that freelancers incur minimal costs during periods between projects.
+
+% ============================================================
+% ARCHITECTURE AND DESIGN
+% ============================================================
+\section{Architecture and Design}
+
+TimeTrack Pro follows a serverless architecture pattern comprising a static frontend hosted on Amazon S3, an API management layer provided by Amazon API Gateway, serverless compute through AWS Lambda, and a NoSQL data tier powered by Amazon DynamoDB. This architecture was selected for its zero-idle-cost characteristics, automatic scaling, and elimination of server management overhead, all of which are critical for a tool targeting cost-conscious freelancers \cite{serverlesspatterns}.
+
+The frontend is a single-page application hosted as a static website on Amazon S3, communicating with the backend exclusively through RESTful API calls routed through API Gateway. The API Gateway configuration defines resource paths and HTTP methods that map to specific Lambda function handlers, providing request validation, CORS support, and rate limiting. The Lambda functions are implemented in Python and deployed as a single function with multiple handler methods, utilising the event routing pattern to direct requests to the appropriate handler based on the API Gateway path and method context.
+
+The DynamoDB data model consists of five primary tables: Users for authentication, Clients for client information, Projects for project details and billing rates, TimeLogs for recorded working sessions, and Invoices for generated invoice records. The partition key design prioritises the most frequent access patterns: Clients and Projects use user-scoped partition keys for efficient per-user queries, TimeLogs use a composite key of project ID and timestamp for range-based retrieval during invoice generation, and Invoices use a client-scoped partition key for per-client invoice listing.
+
+The timer mechanism is implemented as a state machine pattern within the TimeLogs table. A time log entry transitions through two states: active (startTime set, endTime null) and completed (both timestamps set, duration calculated). The Lambda handler enforces that only one active timer can exist per user at any time, preventing accidental double-tracking. When the stop endpoint is invoked, the handler retrieves the active entry, sets the end timestamp, calculates the duration using the TimeCalculator library class, and updates the record atomically.
+
+The invoice generation process follows a pipeline pattern: retrieve all completed time logs for the specified project and date range, group entries by date, calculate line items using the TimeCalculator, apply the project's hourly rate to each entry, compute subtotal and tax amounts using the InvoiceGenerator class, store the invoice record in DynamoDB, and publish a notification via SNS. This multi-step process is executed within a single Lambda invocation, as the typical data volume for a single project's time entries is well within Lambda's memory and timeout constraints.
+
+% ============================================================
+% LIBRARY DESCRIPTION
+% ============================================================
+\section{invoice-engine-nci Library}
+
+The invoice-engine-nci library is a custom Python package developed specifically for this project to encapsulate the domain logic of time calculation, invoice generation, and data validation. The library follows object-oriented design principles with clearly defined classes, comprehensive input validation, and configurable calculation parameters.
+
+The library provides four primary components. The \texttt{TimeCalculator} class handles all duration-related computations, including calculating the elapsed time between start and end timestamps, converting between hours, minutes, and decimal hour formats, applying rounding strategies (ceiling to nearest quarter-hour, floor, or exact), and computing billable amounts by multiplying duration by hourly rate. The class handles timezone-aware datetime objects and provides utility methods for aggregating multiple time entries into total hours and total billable amounts.
+
+The \texttt{InvoiceGenerator} class serves as the main invoice creation engine. It accepts a collection of completed time log entries and a project's billing configuration, then produces a structured invoice object containing a generated invoice number, client and project details, individual line items with date, hours, rate, and amount, a subtotal, configurable tax calculation, and a grand total. The generator supports multiple tax modes including percentage-based, fixed-amount, and tax-exempt configurations.
+
+The \texttt{InvoiceValidator} class provides comprehensive validation for all entity types in the application. It validates client attributes (name, email format, phone format), project attributes (positive hourly rate, valid date ranges, valid status transitions), time log entries (chronological timestamp ordering, maximum duration limits, non-overlap validation), and invoice parameters (valid date ranges, positive tax rates, non-empty time log collections).
+
+The \texttt{ReportFormatter} class handles consistent serialization of time tracking and invoice data, including DynamoDB Decimal-to-float conversion, duration formatting in human-readable formats (e.g., ``2h 30m''), currency formatting, and summary report generation for dashboard displays.
+
+The following code snippet demonstrates the invoice generation workflow using the library:
+
+\begin{lstlisting}[language=Python, caption={Invoice generation using invoice-engine-nci library}]
+from invoice_engine_nci import TimeCalculator
+from invoice_engine_nci import InvoiceGenerator
+from invoice_engine_nci import InvoiceValidator
+
+calculator = TimeCalculator()
+generator = InvoiceGenerator()
+validator = InvoiceValidator()
+
+def generate_invoice(event, context):
+    body = json.loads(event["body"])
+    validator.validate_invoice_request(body)
+
+    # Retrieve completed time logs for project
+    logs = get_time_logs(
+        body["projectId"], body["startDate"],
+        body["endDate"])
+
+    # Calculate duration for each log entry
+    for log in logs:
+        log["duration"] = calculator.calculate_duration(
+            log["startTime"], log["endTime"])
+        log["amount"] = calculator.billable_amount(
+            log["duration"], project["hourlyRate"])
+
+    # Generate structured invoice
+    invoice = generator.create_invoice(
+        client=client, project=project,
+        time_logs=logs,
+        tax_rate=body.get("taxRate", 0.0))
+
+    # Store and notify
+    invoices_table.put_item(Item=invoice)
+    sns_client.publish(
+        TopicArn=SNS_TOPIC_ARN,
+        Subject=f"Invoice {invoice['invoiceNumber']}",
+        Message=generator.format_notification(invoice))
+    return {"statusCode": 201,
+            "body": json.dumps(invoice)}
+\end{lstlisting}
+
+The library is published on the Python Package Index at \url{https://pypi.org/project/invoice-engine-nci/1.0.0/} and can be installed via \texttt{pip install invoice-engine-nci}. A comprehensive test suite of 46 unit tests validates all four classes, covering edge cases such as midnight-crossing time calculations, zero-duration log handling, tax rounding precision, invoice number uniqueness, and boundary conditions for all validation rules.
+
+% ============================================================
+% CLOUD SERVICES
+% ============================================================
+\section{Cloud-Based Services}
+
+The application integrates six AWS services, each serving a distinct purpose in the serverless architecture. This section provides a critical analysis and justification for each service selection.
+
+\subsection{AWS Lambda}
+
+AWS Lambda provides the serverless compute layer for all backend business logic including authentication, CRUD operations, timer management, and invoice generation \cite{awslambda}. Lambda was selected because its event-driven execution model aligns perfectly with the request-response pattern of a REST API, and its pay-per-invocation pricing ensures that freelancers incur no costs during periods between projects when the application sits idle. The Lambda function is configured with 256MB of memory and a 30-second timeout, which provides sufficient resources for the most compute-intensive operation: invoice generation, which requires retrieving and aggregating potentially hundreds of time log entries. Compared to running a continuously available Flask or Express server on Amazon EC2, Lambda eliminates the baseline cost of idle compute resources. The cold start latency of approximately 300-500ms for the Python runtime is acceptable for this use case, as time tracking and invoice operations do not require sub-100ms response times. Lambda@Edge was considered but not adopted because the application does not require edge-compute capabilities.
+
+\subsection{Amazon DynamoDB}
+
+Amazon DynamoDB serves as the primary database for all application data \cite{awsdynamodb}. DynamoDB was selected over relational alternatives such as Amazon RDS because the application's access patterns are predominantly key-value lookups and range queries, which DynamoDB handles with single-digit millisecond latency at any scale. The five-table data model (Users, Clients, Projects, TimeLogs, Invoices) uses partition keys designed around the most frequent query patterns. The TimeLogs table employs a composite primary key with projectId as the partition key and startTime as the sort key, enabling efficient range queries during invoice generation where all time logs for a specific project within a date range must be retrieved. DynamoDB's on-demand capacity mode eliminates the need to predict and provision throughput, aligning with the variable usage patterns typical of freelancer tools. A key technical consideration was DynamoDB's use of the Decimal type for numbers, which required the ReportFormatter class to provide transparent conversion for JSON serialization compatibility.
+
+\subsection{Amazon API Gateway}
+
+Amazon API Gateway provides the managed REST API layer that exposes Lambda functions as HTTP endpoints \cite{awsapigateway}. API Gateway was chosen for its built-in capabilities including request validation, CORS configuration, throttling, and usage monitoring. The REST API type was selected over the HTTP API type for its support of request body validation using JSON Schema models, which provides an additional validation layer before requests reach the Lambda handlers. Each endpoint is configured with appropriate HTTP methods and resource paths following REST conventions, with path parameters for resource identification. API Gateway also provides detailed access logging and CloudWatch metrics integration, enabling monitoring of API usage patterns and error rates. The stage deployment feature supports separate development and production environments with distinct endpoint URLs.
+
+\subsection{Amazon S3}
+
+Amazon S3 hosts the static frontend application as a website-enabled bucket \cite{awss3}. S3 was selected for frontend hosting because it provides highly available, durable static content delivery at minimal cost without requiring web server management. The bucket is configured with public read access for the website content, an index document pointing to the application entry point, and error document configuration for client-side routing support. The S3 website hosting approach was chosen over AWS Amplify for its simplicity and lower cost, though a production deployment would benefit from Amazon CloudFront integration for HTTPS support and global edge caching. Additionally, S3 provides potential storage capacity for generated invoice PDFs and exported time reports, enabling document archival functionality in future enhancements.
+
+\subsection{Amazon SNS}
+
+Amazon Simple Notification Service provides the notification infrastructure for invoice-related alerts \cite{awssns}. When an invoice is generated, the Lambda handler publishes a formatted notification message to an SNS topic configured with email subscriptions. The notification includes the invoice number, client name, project name, total hours billed, subtotal, tax, and grand total, providing a complete summary that enables the freelancer to review the invoice immediately. SNS was selected over Amazon SES for direct email delivery because SNS supports multiple subscription protocols from a single publish action. A freelancer can subscribe via email for detailed notifications and additionally configure SMS subscriptions for high-value invoice alerts. The fan-out capability of SNS also enables future integration with webhook endpoints for accounting software synchronisation, without requiring changes to the core invoice generation logic.
+
+\subsection{AWS IAM}
+
+AWS Identity and Access Management enforces the security boundary for all AWS service interactions \cite{awsiam}. The Lambda execution role is configured with precisely scoped IAM policies that grant access only to the specific DynamoDB tables, SNS topics, and S3 buckets required by the application. Each permission is defined with explicit resource ARNs rather than wildcards, following the principle of least privilege. The IAM policy structure separates read and write permissions, enabling fine-grained control over which operations the Lambda function can perform on each resource. For the DynamoDB tables, the policy grants GetItem, PutItem, UpdateItem, DeleteItem, Query, and Scan permissions on each table individually, preventing cross-table access beyond the intended data model. API Gateway IAM authorization is used for administrative endpoints, while user-facing endpoints rely on the custom JWT authentication layer.
+
+% ============================================================
+% IMPLEMENTATION
+% ============================================================
+\section{Implementation}
+
+The implementation follows a modular structure with clear separation between Lambda handlers, DynamoDB data access operations, AWS service integrations, and the custom library. This section documents the implementation of each major component.
+
+\subsection{Backend API and CRUD Operations}
+
+All CRUD operations are implemented as Lambda handler functions exposed through API Gateway. The client resource supports creation, retrieval (individual and collection filtered by user), update, and deletion with validation through the InvoiceValidator class. The project resource mirrors this pattern with additional business logic for status transitions (active to completed to archived) and hourly rate validation. Table~\ref{tab:endpoints} summarises the primary API endpoints.
+
+\begin{table}[H]
+\centering
+\caption{Primary REST API Endpoints}
+\label{tab:endpoints}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Method} & \textbf{Endpoint} & \textbf{Description} \\
+\hline
+POST & /auth/register & User registration \\
+POST & /auth/login & User login (JWT) \\
+\hline
+POST & /clients & Create client \\
+GET & /clients & List clients \\
+GET & /clients/\{id\} & Get client \\
+PUT & /clients/\{id\} & Update client \\
+DELETE & /clients/\{id\} & Delete client \\
+\hline
+POST & /projects & Create project \\
+GET & /projects & List projects \\
+GET & /projects/\{id\} & Get project \\
+PUT & /projects/\{id\} & Update project \\
+DELETE & /projects/\{id\} & Delete project \\
+\hline
+POST & /timelogs/start & Start timer \\
+POST & /timelogs/stop & Stop timer \\
+POST & /timelogs & Manual time entry \\
+GET & /timelogs & List time logs \\
+DELETE & /timelogs/\{id\} & Delete time log \\
+\hline
+POST & /invoices & Generate invoice \\
+GET & /invoices & List invoices \\
+GET & /invoices/\{id\} & Get invoice \\
+\hline
+GET & /dashboard & Dashboard stats \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Timer Mechanism}
+
+The timer mechanism represents the most distinctive implementation feature of the application. The start timer endpoint creates a new time log entry in DynamoDB with the current UTC timestamp as the startTime and a null endTime attribute, signifying an active recording session. The handler first checks for any existing active timers for the current user and returns an error if one is found, enforcing the single-active-timer constraint.
+
+\begin{lstlisting}[language=Python, caption={Timer start and stop implementation}]
+def start_timer(event, context):
+    user_id = get_user_from_token(event)
+    # Check for existing active timer
+    active = timelogs_table.query(
+        IndexName="UserActiveIndex",
+        KeyConditionExpression=
+            Key("userId").eq(user_id),
+        FilterExpression=
+            Attr("endTime").not_exists())
+    if active["Items"]:
+        return error_response(400,
+            "Timer already running")
+
+    log_entry = {
+        "logId": str(uuid4()),
+        "userId": user_id,
+        "projectId": body["projectId"],
+        "startTime": datetime.utcnow().isoformat(),
+        "description": body.get("description", "")
+    }
+    timelogs_table.put_item(Item=log_entry)
+    return success_response(201, log_entry)
+
+def stop_timer(event, context):
+    user_id = get_user_from_token(event)
+    active = get_active_timer(user_id)
+    end_time = datetime.utcnow().isoformat()
+    duration = calculator.calculate_duration(
+        active["startTime"], end_time)
+
+    timelogs_table.update_item(
+        Key={"logId": active["logId"]},
+        UpdateExpression=
+            "SET endTime=:e, duration=:d",
+        ExpressionAttributeValues={
+            ":e": end_time,
+            ":d": Decimal(str(duration))})
+    return success_response(200,
+        {"duration": duration})
+\end{lstlisting}
+
+The stop timer endpoint retrieves the active timer entry, records the current timestamp as the endTime, and uses the TimeCalculator class to compute the duration in decimal hours. The duration calculation accounts for timezone consistency by operating exclusively in UTC timestamps, and applies the configured rounding strategy before storing the result. This two-phase approach (start creates an incomplete record, stop completes it) provides a reliable mechanism that survives network interruptions or client-side failures, as the active timer state is persisted in DynamoDB and can be recovered from any device.
+
+\subsection{Invoice Generation Pipeline}
+
+The invoice generation process is the most computationally complex operation in the application, aggregating multiple time log entries into a structured invoice document. The process begins with validation of the invoice request parameters using the InvoiceValidator, followed by retrieval of all completed time logs for the specified project within the date range using DynamoDB's Query operation on the composite key. The InvoiceGenerator class then processes the retrieved logs, creating individual line items for each entry with date, description, hours, rate, and computed amount. The generator calculates the subtotal by summing all line item amounts, applies the tax rate to compute the tax amount, and produces the grand total. The completed invoice is stored in the Invoices DynamoDB table and a notification is published to the SNS topic.
+
+\subsection{Frontend Implementation}
+
+The frontend is implemented as a single-page application hosted on Amazon S3, providing an intuitive interface for the complete freelancer workflow. The application features seven primary views: Login/Registration, Dashboard with summary statistics and recent activity, Clients management with tabular display, Projects management with status indicators and hourly rate configuration, Time Tracker with a prominent start/stop button and running timer display, Time Logs with filterable history and manual entry support, and Invoices with generation form and invoice detail views. The dashboard displays key performance indicators including total hours this month, total revenue, outstanding invoices, and active projects, enabling freelancers to monitor their business health at a glance. All API communication uses fetch with JWT tokens in the Authorization header.
+
+\subsection{Testing}
+
+Testing was conducted comprehensively with 46 automated tests organised into a unified test suite for the invoice-engine-nci library. The TimeCalculator tests cover duration calculations across midnight boundaries, same-day sessions, multi-day entries, rounding strategies (quarter-hour ceiling, floor, exact), billable amount computation with various rates, and aggregate calculations for multiple entries. The InvoiceGenerator tests validate invoice number generation uniqueness, line item creation accuracy, subtotal calculation, multiple tax modes (percentage, fixed, exempt), grand total computation, and edge cases including single-entry invoices and invoices spanning multiple months. The InvoiceValidator tests cover all entity validation rules including email format validation, positive rate enforcement, chronological timestamp ordering, maximum duration limits, and required field presence. The ReportFormatter tests verify Decimal conversion, duration formatting, currency formatting, and summary statistics generation. All 46 tests execute without AWS dependencies, enabling rapid local development feedback and reliable CI/CD pipeline integration.
+
+% ============================================================
+% CI/CD AND DEPLOYMENT
+% ============================================================
+\section{Continuous Integration, Delivery and Deployment}
+
+The application source code is maintained in a GitHub repository at \url{https://github.com/Goutham0227/cpp}. A CI/CD pipeline was implemented using GitHub Actions, triggered on every push to the main branch. The pipeline consists of three sequential stages. The first stage installs the invoice-engine-nci library and its test dependencies, then executes the full suite of 46 unit tests using pytest. Only when all tests pass does the pipeline proceed to deployment. The second stage packages the Lambda function code with all runtime dependencies into a deployment archive and updates the Lambda function using the AWS CLI. The third stage builds the frontend production bundle and synchronises the static assets to the S3 bucket configured for website hosting.
+
+All sensitive values including AWS credentials, JWT secret, and SNS topic ARN are stored as encrypted GitHub repository secrets and injected as environment variables during the deployment stages. The deployment targets the eu-west-1 (Ireland) region where all AWS resources are provisioned. The Lambda function environment variables specify the DynamoDB table names, SNS topic ARN, JWT configuration, and S3 bucket name for cross-service references.
+
+The custom library is published at: \url{https://pypi.org/project/invoice-engine-nci/1.0.0/}. The GitHub repository is available at: \url{https://github.com/Goutham0227/cpp}.
+
+% ============================================================
+% CONCLUSIONS
+% ============================================================
+\section{Conclusions}
+
+This project successfully demonstrates the development of a serverless cloud-native application that integrates six AWS services to provide a comprehensive time tracking and invoice generation solution for freelancers. TimeTrack Pro addresses a genuine market need by delivering professional-grade functionality with the cost advantages of a serverless architecture, where freelancers pay only for actual usage rather than fixed monthly subscriptions.
+
+Several key findings emerged during the development process. First, the start/stop timer mechanism required careful consideration of state management in a serverless context. Unlike traditional server-based applications that can maintain in-memory session state, the serverless architecture necessitated persisting the active timer state in DynamoDB, which introduced the challenge of ensuring exactly-once timer stop operations. The solution of using conditional update expressions with attribute existence checks proved effective for preventing double-stop scenarios.
+
+Second, the invoice generation pipeline demonstrated the power of combining a custom domain library with cloud services. The invoice-engine-nci library handles the complex calculations of time aggregation, line item creation, and tax computation independently of the infrastructure layer, while the Lambda handler orchestrates the overall workflow including DynamoDB queries, library invocations, and SNS notifications. This separation enabled independent testing of the billing logic with 46 unit tests that execute in under three seconds without any cloud dependencies.
+
+Third, DynamoDB's composite key design proved essential for efficient invoice generation queries. The TimeLogs table's composite key of projectId (partition key) and startTime (sort key) enables the Query operation to retrieve all time entries for a specific project within a date range using a single, efficient key condition expression. This design eliminated the need for expensive table scans and ensures consistent query performance regardless of the total number of time log entries across all projects.
+
+Fourth, the integration of Amazon SNS for invoice notifications demonstrated the value of asynchronous communication patterns in serverless architectures. The publish-subscribe model allows freelancers to receive email summaries of generated invoices and provides extensibility for future notification channels such as Slack webhooks or accounting software integrations without modifying the core invoice generation logic.
+
+The main limitation of the current implementation is the absence of PDF invoice generation, which would require integration with a library such as ReportLab or WeasyPrint within the Lambda environment, or an alternative approach using a dedicated PDF generation service. Additionally, the current single-currency implementation (EUR) would need to be extended with exchange rate integration for freelancers working with international clients.
+
+Future enhancements could include PDF invoice generation and email delivery through Amazon SES, integration with payment gateways for online invoice payment, expense tracking alongside time tracking for comprehensive financial management, team collaboration features for small agencies, and machine learning-based time estimation using Amazon SageMaker trained on historical project data. The serverless architecture established in this project provides a solid, cost-effective foundation for these extensions.
+
+% ============================================================
+% REFERENCES
+% ============================================================
+\begin{thebibliography}{00}
+
+\bibitem{freelancestats} Statista Research Department, ``Number of Freelancers Worldwide from 2020 to 2030,'' Statista, 2024. [Online]. Available: https://www.statista.com/statistics/1446276/global-freelancers-number/
+
+\bibitem{cloudpatterns} C. Richardson, ``Microservices Patterns: With Examples in Java,'' Manning Publications, 2018.
+
+\bibitem{serverlesspatterns} P. Sbarski, ``Serverless Architectures on AWS,'' 2nd ed., Manning Publications, 2022.
+
+\bibitem{awslambda} Amazon Web Services, ``AWS Lambda Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/lambda/
+
+\bibitem{awsdynamodb} Amazon Web Services, ``Amazon DynamoDB Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/dynamodb/
+
+\bibitem{awsapigateway} Amazon Web Services, ``Amazon API Gateway Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/apigateway/
+
+\bibitem{awss3} Amazon Web Services, ``Amazon Simple Storage Service (S3) Documentation,'' 2024. [Online]. Available: https://docs.aws.amazon.com/s3/
+
+\bibitem{awssns} Amazon Web Services, ``Amazon Simple Notification Service Developer Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/sns/
+
+\bibitem{awsiam} Amazon Web Services, ``AWS Identity and Access Management User Guide,'' 2024. [Online]. Available: https://docs.aws.amazon.com/iam/
+
+\bibitem{dynamodbdesign} A. DeBrie, ``The DynamoDB Book,'' 2020. [Online]. Available: https://www.dynamodbbook.com/
+
+\end{thebibliography}
+
+\end{document}
