@@ -130,7 +130,13 @@ export default function ProjectDetail() {
     e.preventDefault();
     setAddingManual(true);
     try {
-      await api.createTimeLog(id, { ...manualForm });
+      const payload = {
+        description: manualForm.description,
+        billable: manualForm.billable,
+        startTime: `${manualForm.date}T${manualForm.startTime}:00Z`,
+        endTime: `${manualForm.date}T${manualForm.endTime}:00Z`,
+      };
+      await api.createTimeLog(id, payload);
       toast.success('Time log added');
       setManualForm({ date: '', startTime: '', endTime: '', description: '', billable: true });
       fetchData();

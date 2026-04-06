@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '',
 });
 
 api.interceptors.request.use((config) => {
@@ -45,8 +45,8 @@ export const deleteProject = (id) => api.delete(`/projects/${id}`);
 // Time Logs
 export const getTimeLogs = (projectId) => api.get(`/projects/${projectId}/timelogs`);
 export const createTimeLog = (projectId, data) => api.post(`/projects/${projectId}/timelogs`, data);
-export const updateTimeLog = (projectId, id, data) => api.put(`/projects/${projectId}/timelogs/${id}`, data);
-export const deleteTimeLog = (projectId, id) => api.delete(`/projects/${projectId}/timelogs/${id}`);
+export const updateTimeLog = (projectId, id, data) => api.put(`/timelogs/${id}`, data);
+export const deleteTimeLog = (projectId, id) => api.delete(`/timelogs/${id}`);
 
 // Timer
 export const startTimer = (data) => api.post('/timer/start', data);
@@ -55,7 +55,7 @@ export const stopTimer = (timerId) => api.post(`/timer/stop/${timerId}`);
 // Invoices
 export const getInvoices = () => api.get('/invoices');
 export const getInvoice = (id) => api.get(`/invoices/${id}`);
-export const generateInvoice = (data) => api.post('/invoices/generate', data);
+export const generateInvoice = (data) => api.post(`/projects/${data.projectId}/invoice`, data);
 export const deleteInvoice = (id) => api.delete(`/invoices/${id}`);
 
 // Dashboard
@@ -63,6 +63,6 @@ export const getDashboard = () => api.get('/dashboard');
 
 // Subscription
 export const subscribe = (data) => api.post('/subscribe', data);
-export const getSubscriberCount = () => api.get('/subscribe/count');
+export const getSubscriberCount = () => api.get('/subscribers');
 
 export default api;

@@ -610,9 +610,16 @@ def handle_subscribers():
 
 def lambda_handler(event, context):
     try:
-        http_method = event.get('httpMethod', '')
-        path = event.get('path', '')
+        # Support both API Gateway v1 (httpMethod) and v2 (requestContext.http.method)
+        http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+        path = event.get('path') or event.get('rawPath', '')
         path_params = event.get('pathParameters') or {}
+
+        # Strip /prod stage prefix
+        if path.startswith('/prod'):
+            path = path[5:]
+        if not path:
+            path = '/'
 
         # CORS preflight
         if http_method == 'OPTIONS':
