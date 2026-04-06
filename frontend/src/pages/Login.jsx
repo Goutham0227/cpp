@@ -17,7 +17,7 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await api.login({ email, password });
-      login(res.data.user, res.data.token);
+      login({ id: res.data.userId, username: res.data.username, email }, res.data.token);
       toast.success('Welcome back!');
       navigate('/');
     } catch (err) {
