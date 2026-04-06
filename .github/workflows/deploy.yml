@@ -133,10 +133,8 @@ jobs:
       - name: Package Lambda function
         run: |
           cd backend
-          pip install -r requirements.txt -t package/
-          cp -r *.py models/ routes/ services/ package/ 2>/dev/null || true
-          cd package
-          zip -r9 ../../function.zip .
+          pip install -r requirements.txt -t .
+          zip -r ../function.zip . -x "*.pyc" -x "__pycache__/*" -x "package/*"
 
       # ── Get IAM role ARN ──
       - name: Get Lambda role ARN
@@ -152,6 +150,7 @@ jobs:
               --function-name timetracker-api \
               --zip-file fileb://function.zip \
               --region ${{ env.AWS_REGION }}
+            aws lambda wait function-updated --function-name timetracker-api --region ${{ env.AWS_REGION }}
           else
             aws lambda create-function \
               --function-name timetracker-api \
