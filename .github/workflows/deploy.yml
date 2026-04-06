@@ -183,115 +183,43 @@ jobs:
             }" \
             --region ${{ env.AWS_REGION }} || true
 
-      # ── API Gateway ──
-      - name: Create or get API Gateway
+      # ── API Gateway (REST API v1 - proven pattern) ──
+      - name: Setup API Gateway
         run: |
-          API_ID=$(aws apigatewayv2 get-apis --region ${{ env.AWS_REGION }} \
-            --query "Items[?Name=='timetracker-api'].ApiId" --output text)
-
+          API_ID=$(aws apigateway get-rest-apis --query "items[?name=='timetracker-api'].id" --output text --region ${{ env.AWS_REGION }})
           if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
-            API_ID=$(aws apigatewayv2 create-api \
-              --name timetracker-api \
-              --protocol-type HTTP \
-              --cors-configuration AllowOrigins="*",AllowMethods="GET,POST,PUT,DELETE,OPTIONS",AllowHeaders="Content-Type,Authorization" \
-              --region ${{ env.AWS_REGION }} \
-              --query 'ApiId' --output text)
-          fi
-          echo "API_ID=$API_ID" >> $GITHUB_ENV
-
-      - name: Get Lambda ARN
-        run: |
-          LAMBDA_ARN=$(aws lambda get-function --function-name timetracker-api \
-            --region ${{ env.AWS_REGION }} --query 'Configuration.FunctionArn' --output text)
-          echo "LAMBDA_ARN=$LAMBDA_ARN" >> $GITHUB_ENV
-
-      - name: Create API Gateway integration
-        run: |
-          INTEGRATION_ID=$(aws apigatewayv2 get-integrations \
-            --api-id ${{ env.API_ID }} --region ${{ env.AWS_REGION }} \
-            --query "Items[0].IntegrationId" --output text 2>/dev/null)
-
-          if [ -z "$INTEGRATION_ID" ] || [ "$INTEGRATION_ID" = "None" ]; then
-            INTEGRATION_ID=$(aws apigatewayv2 create-integration \
-              --api-id ${{ env.API_ID }} \
-              --integration-type AWS_PROXY \
-              --integration-uri ${{ env.LAMBDA_ARN }} \
-              --payload-format-version 2.0 \
-              --region ${{ env.AWS_REGION }} \
-              --query 'IntegrationId' --output text)
-          fi
-          echo "INTEGRATION_ID=$INTEGRATION_ID" >> $GITHUB_ENV
-
-      - name: Create proxy route
-        run: |
-          ROUTE_EXISTS=$(aws apigatewayv2 get-routes \
-            --api-id ${{ env.API_ID }} --region ${{ env.AWS_REGION }} \
-            --query "Items[?RouteKey=='ANY /{proxy+}'].RouteId" --output text 2>/dev/null)
-
-          if [ -z "$ROUTE_EXISTS" ] || [ "$ROUTE_EXISTS" = "None" ]; then
-            aws apigatewayv2 create-route \
-              --api-id ${{ env.API_ID }} \
-              --route-key "ANY /{proxy+}" \
-              --target "integrations/${{ env.INTEGRATION_ID }}" \
-              --region ${{ env.AWS_REGION }}
+            API_ID=$(aws apigateway create-rest-api --name timetracker-api --endpoint-configuration types=REGIONAL --query 'id' --output text --region ${{ env.AWS_REGION }})
           fi
 
-      - name: Create root ANY route
-        run: |
-          ROOT_ROUTE=$(aws apigatewayv2 get-routes \
-            --api-id ${{ env.API_ID }} --region ${{ env.AWS_REGION }} \
-            --query "Items[?RouteKey=='ANY /'].RouteId" --output text 2>/dev/null)
+          ROOT_ID=$(aws apigateway get-resources --rest-api-id $API_ID --query "items[?path=='/'].id" --output text --region ${{ env.AWS_REGION }})
 
-          if [ -z "$ROOT_ROUTE" ] || [ "$ROOT_ROUTE" = "None" ]; then
-            aws apigatewayv2 create-route \
-              --api-id ${{ env.API_ID }} \
-              --route-key "ANY /" \
-              --target "integrations/${{ env.INTEGRATION_ID }}" \
-              --region ${{ env.AWS_REGION }}
+          PROXY_ID=$(aws apigateway get-resources --rest-api-id $API_ID --query "items[?pathPart=='{proxy+}'].id" --output text --region ${{ env.AWS_REGION }})
+          if [ -z "$PROXY_ID" ] || [ "$PROXY_ID" = "None" ]; then
+            PROXY_ID=$(aws apigateway create-resource --rest-api-id $API_ID --parent-id $ROOT_ID --path-part '{proxy+}' --query 'id' --output text --region ${{ env.AWS_REGION }})
           fi
 
-      - name: Create OPTIONS route for CORS
-        run: |
-          OPTIONS_ROUTE=$(aws apigatewayv2 get-routes \
-            --api-id ${{ env.API_ID }} --region ${{ env.AWS_REGION }} \
-            --query "Items[?RouteKey=='OPTIONS /{proxy+}'].RouteId" --output text 2>/dev/null)
+          LAMBDA_ARN=$(aws lambda get-function --function-name timetracker-api --query 'Configuration.FunctionArn' --output text --region ${{ env.AWS_REGION }})
 
-          if [ -z "$OPTIONS_ROUTE" ] || [ "$OPTIONS_ROUTE" = "None" ]; then
-            aws apigatewayv2 create-route \
-              --api-id ${{ env.API_ID }} \
-              --route-key "OPTIONS /{proxy+}" \
-              --target "integrations/${{ env.INTEGRATION_ID }}" \
-              --region ${{ env.AWS_REGION }}
-          fi
+          aws apigateway put-method --rest-api-id $API_ID --resource-id $PROXY_ID --http-method ANY --authorization-type NONE --request-parameters "method.request.path.proxy=true" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          aws apigateway put-integration --rest-api-id $API_ID --resource-id $PROXY_ID --http-method ANY --type AWS_PROXY --integration-http-method POST --uri "arn:aws:apigateway:${{ env.AWS_REGION }}:lambda:path/2015-03-31/functions/${LAMBDA_ARN}/invocations" --region ${{ env.AWS_REGION }}
 
-      - name: Add Lambda permission for API Gateway
-        run: |
-          aws lambda add-permission \
-            --function-name timetracker-api \
-            --statement-id apigateway-invoke \
-            --action lambda:InvokeFunction \
-            --principal apigateway.amazonaws.com \
-            --source-arn "arn:aws:execute-api:${{ env.AWS_REGION }}:*:${{ env.API_ID }}/*" \
-            --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          aws apigateway put-method --rest-api-id $API_ID --resource-id $PROXY_ID --http-method OPTIONS --authorization-type NONE --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          aws apigateway put-method-response --rest-api-id $API_ID --resource-id $PROXY_ID --http-method OPTIONS --status-code 200 --response-parameters "method.response.header.Access-Control-Allow-Headers=true,method.response.header.Access-Control-Allow-Methods=true,method.response.header.Access-Control-Allow-Origin=true" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          aws apigateway put-integration --rest-api-id $API_ID --resource-id $PROXY_ID --http-method OPTIONS --type MOCK --request-templates '{"application/json": "{\"statusCode\": 200}"}' --region ${{ env.AWS_REGION }}
+          aws apigateway put-integration-response --rest-api-id $API_ID --resource-id $PROXY_ID --http-method OPTIONS --status-code 200 --response-parameters '{"method.response.header.Access-Control-Allow-Headers":"'"'"'Content-Type,Authorization'"'"'","method.response.header.Access-Control-Allow-Methods":"'"'"'GET,POST,PUT,DELETE,OPTIONS'"'"'","method.response.header.Access-Control-Allow-Origin":"'"'"'*'"'"'"}' --region ${{ env.AWS_REGION }}
 
-      - name: Deploy API Gateway stage
-        run: |
-          aws apigatewayv2 create-stage \
-            --api-id ${{ env.API_ID }} \
-            --stage-name prod \
-            --auto-deploy \
-            --region ${{ env.AWS_REGION }} 2>/dev/null || \
-          aws apigatewayv2 update-stage \
-            --api-id ${{ env.API_ID }} \
-            --stage-name prod \
-            --auto-deploy \
-            --region ${{ env.AWS_REGION }}
+          aws apigateway put-method --rest-api-id $API_ID --resource-id $ROOT_ID --http-method ANY --authorization-type NONE --region ${{ env.AWS_REGION }} 2>/dev/null || true
+          aws apigateway put-integration --rest-api-id $API_ID --resource-id $ROOT_ID --http-method ANY --type AWS_PROXY --integration-http-method POST --uri "arn:aws:apigateway:${{ env.AWS_REGION }}:lambda:path/2015-03-31/functions/${LAMBDA_ARN}/invocations" --region ${{ env.AWS_REGION }}
+
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws lambda add-permission --function-name timetracker-api --statement-id apigateway-access-v1 --action lambda:InvokeFunction --principal apigateway.amazonaws.com --source-arn "arn:aws:execute-api:${{ env.AWS_REGION }}:${ACCOUNT_ID}:${API_ID}/*" --region ${{ env.AWS_REGION }} 2>/dev/null || true
+
+          aws apigateway create-deployment --rest-api-id $API_ID --stage-name prod --region ${{ env.AWS_REGION }}
+
+          echo "API_URL=https://${API_ID}.execute-api.${{ env.AWS_REGION }}.amazonaws.com/prod" >> $GITHUB_ENV
 
       - name: Output API URL
-        run: |
-          API_URL="https://${{ env.API_ID }}.execute-api.${{ env.AWS_REGION }}.amazonaws.com/prod"
-          echo "API_URL=$API_URL" >> $GITHUB_ENV
-          echo "Backend API URL: $API_URL"
+        run: echo "Backend API URL - $API_URL"
 
   # ───────────────────────────────────────────────
   # Job 3: Deploy frontend to S3 static hosting
@@ -320,8 +248,7 @@ jobs:
 
       - name: Get API URL
         run: |
-          API_ID=$(aws apigatewayv2 get-apis --region ${{ env.AWS_REGION }} \
-            --query "Items[?Name=='timetracker-api'].ApiId" --output text)
+          API_ID=$(aws apigateway get-rest-apis --query "items[?name=='timetracker-api'].id" --output text --region ${{ env.AWS_REGION }})
           API_URL="https://${API_ID}.execute-api.${{ env.AWS_REGION }}.amazonaws.com/prod"
           echo "API_URL=$API_URL" >> $GITHUB_ENV
           echo "Using API URL: $API_URL"
