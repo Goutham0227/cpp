@@ -39,17 +39,27 @@ export default function ProjectDetail() {
         api.getTimeLogs(id),
       ]);
       const proj = projRes.data.project || projRes.data;
+      const allLogs = logsRes.data.timeLogs || logsRes.data || [];
+
+      // Separate the running timer (if any) from completed time logs
+      const running = allLogs.find((log) => log.running === true);
+      const completedLogs = allLogs.filter((log) => log.running !== true);
+
       setProject(proj);
-      setTimeLogs(logsRes.data.timeLogs || logsRes.data || []);
+      setTimeLogs(completedLogs);
       setEditForm({
         name: proj.name || '',
         hourlyRate: proj.hourlyRate || '',
         status: proj.status || 'active',
         description: proj.description || '',
       });
-      if (proj.activeTimer) {
+
+      if (running) {
         setTimerRunning(true);
-        setActiveTimer(proj.activeTimer);
+        setActiveTimer(running);
+      } else {
+        setTimerRunning(false);
+        setActiveTimer(null);
       }
     } catch {
       toast.error('Failed to load project');
@@ -62,8 +72,16 @@ export default function ProjectDetail() {
 
   useEffect(() => {
     if (activeTimer) {
-      const startTime = new Date(activeTimer.startTime).getTime();
-      const update = () => setElapsed(Math.floor((Date.now() - startTime) / 1000));
+      // Use the locally captured client start time when present (from
+      // handleStart) to avoid client/server clock drift causing the timer
+      // to display a non-zero starting value. Fall back to server start
+      // time when resuming an existing running timer across sessions.
+      const startMs = activeTimer.clientStartMs
+        || new Date(activeTimer.startTime).getTime();
+      const update = () => {
+        const diff = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+        setElapsed(diff);
+      };
       update();
       intervalRef.current = setInterval(update, 1000);
       return () => clearInterval(intervalRef.current);
@@ -84,12 +102,16 @@ export default function ProjectDetail() {
     setStarting(true);
     try {
       const res = await api.startTimer({ projectId: id, description: timerDesc });
+      const timer = res.data.timer || res.data;
+      // Capture local client clock the moment we know the timer started so
+      // the elapsed counter always begins at 00:00:00 regardless of any
+      // server/client clock skew.
       setTimerRunning(true);
-      setActiveTimer(res.data.timer || res.data);
+      setActiveTimer({ ...timer, clientStartMs: Date.now() });
       setTimerDesc('');
       toast.success('Timer started');
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to start timer');
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to start timer');
     } finally {
       setStarting(false);
     }
@@ -226,15 +248,15 @@ export default function ProjectDetail() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <span className="text-xs text-gray-500 uppercase">Hourly Rate</span>
-            <p className="text-lg font-semibold text-gray-900">${project.hourlyRate || 0}/hr</p>
+            <p className="text-lg font-semibold text-gray-900">${Number(project.hourlyRate || 0)}/hr</p>
           </div>
           <div>
             <span className="text-xs text-gray-500 uppercase">Total Hours</span>
-            <p className="text-lg font-semibold text-gray-900">{(project.totalHours || 0).toFixed(1)}</p>
+            <p className="text-lg font-semibold text-gray-900">{Number(timeLogs.reduce((sum, l) => sum + Number(l.duration || l.hours || 0), 0)).toFixed(1)}</p>
           </div>
           <div>
             <span className="text-xs text-gray-500 uppercase">Total Earned</span>
-            <p className="text-lg font-semibold text-green-600">${((project.totalHours || 0) * (project.hourlyRate || 0)).toFixed(2)}</p>
+            <p className="text-lg font-semibold text-green-600">${(timeLogs.reduce((sum, l) => sum + Number(l.duration || l.hours || 0), 0) * Number(project.hourlyRate || 0)).toFixed(2)}</p>
           </div>
           <div>
             <span className="text-xs text-gray-500 uppercase">Time Logs</span>
@@ -341,7 +363,7 @@ export default function ProjectDetail() {
                             className="border border-gray-300 rounded px-2 py-1 text-sm w-20 text-right"
                           />
                         ) : (
-                          (log.hours || log.duration || 0).toFixed(2)
+                          Number(log.hours || log.duration || 0).toFixed(2)
                         )}
                       </td>
                       <td className="px-6 py-3 text-center">

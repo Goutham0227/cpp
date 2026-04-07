@@ -53,9 +53,9 @@ export default function InvoiceDetail() {
   }
 
   const lineItems = invoice.lineItems || invoice.items || [];
-  const subtotal = invoice.subtotal || lineItems.reduce((sum, item) => sum + (item.amount || (item.hours || 0) * (item.rate || 0)), 0);
-  const tax = invoice.tax || 0;
-  const total = invoice.total || invoice.totalAmount || subtotal + tax;
+  const subtotal = Number(invoice.subtotal) || lineItems.reduce((sum, item) => sum + (Number(item.amount) || Number(item.hours || 0) * Number(item.rate || 0)), 0);
+  const tax = Number(invoice.tax) || 0;
+  const total = Number(invoice.total) || Number(invoice.totalAmount) || (subtotal + tax);
 
   return (
     <div className="space-y-6">
@@ -138,10 +138,10 @@ export default function InvoiceDetail() {
                       {item.date ? new Date(item.date).toLocaleDateString() : '—'}
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-900">{item.description || '—'}</td>
-                    <td className="px-6 py-3 text-sm text-gray-900 text-right">{(item.hours || 0).toFixed(2)}</td>
-                    <td className="px-6 py-3 text-sm text-gray-900 text-right">${(item.rate || 0).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm text-gray-900 text-right">{Number(item.hours || 0).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm text-gray-900 text-right">${Number(item.rate || 0).toFixed(2)}</td>
                     <td className="px-8 py-3 text-sm font-medium text-gray-900 text-right">
-                      ${(item.amount || (item.hours || 0) * (item.rate || 0)).toFixed(2)}
+                      ${(Number(item.amount) || Number(item.hours || 0) * Number(item.rate || 0)).toFixed(2)}
                     </td>
                   </tr>
                 ))}

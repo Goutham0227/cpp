@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Pencil, Trash2, Building, Mail, Phone, X } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, Building, Mail, Phone, X, Eye, MapPin, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as api from '../api.js';
 
@@ -13,6 +13,7 @@ export default function Clients() {
   const [form, setForm] = useState(emptyClient);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [previewClient, setPreviewClient] = useState(null);
 
   const fetchClients = async () => {
     try {
@@ -123,12 +124,24 @@ export default function Clients() {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => openEdit(client)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                  <button
+                    onClick={() => setPreviewClient(client)}
+                    title="Preview"
+                    className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => openEdit(client)}
+                    title="Edit"
+                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  >
                     <Pencil className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleDelete(client._id || client.id)}
                     disabled={deleting === (client._id || client.id)}
+                    title="Delete"
                     className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -219,6 +232,97 @@ export default function Clients() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal (read-only) */}
+      {previewClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setPreviewClient(null)}></div>
+          <div className="bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md relative z-10">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <Eye className="w-5 h-5 text-green-600" />
+                <h2 className="text-lg font-semibold text-gray-900">Client Details</h2>
+              </div>
+              <button onClick={() => setPreviewClient(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                  <User className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase">Name</p>
+                  <p className="text-base font-semibold text-gray-900">{previewClient.name || '—'}</p>
+                </div>
+              </div>
+              {previewClient.company && (
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center shrink-0">
+                    <Building className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase">Company</p>
+                    <p className="text-base text-gray-900">{previewClient.company}</p>
+                  </div>
+                </div>
+              )}
+              {previewClient.email && (
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center shrink-0">
+                    <Mail className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase">Email</p>
+                    <p className="text-base text-gray-900 break-all">{previewClient.email}</p>
+                  </div>
+                </div>
+              )}
+              {previewClient.phone && (
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center shrink-0">
+                    <Phone className="w-5 h-5 text-orange-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase">Phone</p>
+                    <p className="text-base text-gray-900">{previewClient.phone}</p>
+                  </div>
+                </div>
+              )}
+              {previewClient.address && (
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-pink-50 flex items-center justify-center shrink-0">
+                    <MapPin className="w-5 h-5 text-pink-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase">Address</p>
+                    <p className="text-base text-gray-900 whitespace-pre-line">{previewClient.address}</p>
+                  </div>
+                </div>
+              )}
+              {!previewClient.email && !previewClient.phone && !previewClient.address && !previewClient.company && (
+                <p className="text-sm text-gray-400 italic text-center py-2">No additional details available</p>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => { openEdit(previewClient); setPreviewClient(null); }}
+                className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </button>
+              <button
+                onClick={() => setPreviewClient(null)}
+                className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

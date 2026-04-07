@@ -32,18 +32,26 @@ CORS_HEADERS = {
 }
 
 
+def decimal_default(obj):
+    """JSON serializer that converts DynamoDB Decimal to int/float and
+    datetime to ISO string. Without this, Decimals come back as strings
+    (when default=str) and break frontend code that calls .toFixed()."""
+    if isinstance(obj, Decimal):
+        # Whole numbers as int (no trailing .0), fractions as float
+        if obj == obj.to_integral_value():
+            return int(obj)
+        return float(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
+
+
 def response(status_code, body):
     return {
         'statusCode': status_code,
         'headers': CORS_HEADERS,
-        'body': json.dumps(body, default=str)
+        'body': json.dumps(body, default=decimal_default)
     }
-
-
-def decimal_default(obj):
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError
 
 
 def to_decimal(val):

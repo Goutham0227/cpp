@@ -96,15 +96,15 @@ export default function Projects() {
               </div>
               <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-1.5">
                 <DollarSign className="w-3.5 h-3.5" />
-                ${project.hourlyRate || 0}/hr
+                ${Number(project.hourlyRate || 0)}/hr
               </div>
               <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-1.5">
                 <Clock className="w-3.5 h-3.5" />
-                {(project.totalHours || 0).toFixed(1)} hours logged
+                {Number(project.totalHours || 0).toFixed(1)} hours logged
               </div>
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <span className="text-sm font-medium text-green-600">
-                  ${((project.totalHours || 0) * (project.hourlyRate || 0)).toFixed(2)} earned
+                  ${(Number(project.totalHours || 0) * Number(project.hourlyRate || 0)).toFixed(2)} earned
                 </span>
               </div>
             </Link>

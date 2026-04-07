@@ -12,10 +12,24 @@ export default function Dashboard() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [clientStartMs, setClientStartMs] = useState(null);
   const [subEmail, setSubEmail] = useState('');
   const [subscribing, setSubscribing] = useState(false);
   const [subCount, setSubCount] = useState(0);
   const intervalRef = useRef(null);
+
+  // Backend returns activeTimers (array). Normalize to a single active timer.
+  const activeTimer =
+    (dashboard?.activeTimers && dashboard.activeTimers[0])
+    || dashboard?.activeTimer
+    || null;
+
+  const projectNameForTimer = (timer) => {
+    if (!timer) return '';
+    if (timer.projectName) return timer.projectName;
+    const proj = projects.find((p) => (p._id || p.id) === timer.projectId);
+    return proj?.name || 'Project';
+  };
 
   const fetchData = async () => {
     try {
@@ -39,10 +53,14 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (dashboard?.activeTimer) {
-      const startTime = new Date(dashboard.activeTimer.startTime).getTime();
+    if (activeTimer) {
+      // Prefer the locally captured client start time (set in handleStart)
+      // to avoid client/server clock skew. Otherwise fall back to the
+      // server-reported startTime when resuming an existing timer.
+      const startMs = clientStartMs
+        || new Date(activeTimer.startTime).getTime();
       const updateElapsed = () => {
-        setElapsed(Math.floor((Date.now() - startTime) / 1000));
+        setElapsed(Math.max(0, Math.floor((Date.now() - startMs) / 1000)));
       };
       updateElapsed();
       intervalRef.current = setInterval(updateElapsed, 1000);
@@ -51,7 +69,7 @@ export default function Dashboard() {
       setElapsed(0);
       if (intervalRef.current) clearInterval(intervalRef.current);
     }
-  }, [dashboard?.activeTimer]);
+  }, [activeTimer, clientStartMs]);
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600);
@@ -65,23 +83,28 @@ export default function Dashboard() {
     setStarting(true);
     try {
       await api.startTimer({ projectId: timerProject, description: timerDesc });
+      // Capture local client clock the moment the timer starts so the
+      // elapsed counter always begins at 00:00:00 regardless of any
+      // server/client clock skew.
+      setClientStartMs(Date.now());
       toast.success('Timer started!');
       setTimerDesc('');
-      fetchData();
+      await fetchData();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to start timer');
+      toast.error(err.response?.data?.message || err.response?.data?.error || 'Failed to start timer');
     } finally {
       setStarting(false);
     }
   };
 
   const handleStop = async () => {
-    if (!dashboard?.activeTimer) return;
+    if (!activeTimer) return;
     setStopping(true);
     try {
-      await api.stopTimer(dashboard.activeTimer._id || dashboard.activeTimer.id);
+      await api.stopTimer(activeTimer._id || activeTimer.id);
       toast.success('Timer stopped!');
-      fetchData();
+      setClientStartMs(null);
+      await fetchData();
     } catch (err) {
       toast.error('Failed to stop timer');
     } finally {
@@ -118,12 +141,15 @@ export default function Dashboard() {
     );
   }
 
+  const activeProjectsCount = projects.filter((p) => (p.status || 'active') === 'active').length;
+  const activeTimersCount = (dashboard?.activeTimers && dashboard.activeTimers.length) || (activeTimer ? 1 : 0);
+
   const stats = [
     { label: 'Total Clients', value: dashboard?.totalClients || 0, icon: Users, color: 'text-gray-900', bg: 'bg-gray-50' },
-    { label: 'Active Projects', value: dashboard?.activeProjects || 0, icon: FolderOpen, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Hours This Week', value: (dashboard?.hoursThisWeek || 0).toFixed(1), icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { label: 'Total Earnings', value: `$${(dashboard?.totalEarnings || 0).toLocaleString()}`, icon: DollarSign, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Active Timers', value: dashboard?.activeTimer ? 1 : 0, icon: Timer, color: 'text-blue-600', bg: 'bg-blue-50', pulse: !!dashboard?.activeTimer },
+    { label: 'Active Projects', value: dashboard?.activeProjects ?? activeProjectsCount, icon: FolderOpen, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Hours This Week', value: Number(dashboard?.totalHoursThisWeek ?? dashboard?.hoursThisWeek ?? 0).toFixed(1), icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Total Earnings', value: `$${Number(dashboard?.totalEarnings || 0).toLocaleString()}`, icon: DollarSign, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'Active Timers', value: activeTimersCount, icon: Timer, color: 'text-blue-600', bg: 'bg-blue-50', pulse: !!activeTimer },
   ];
 
   return (
@@ -149,7 +175,7 @@ export default function Dashboard() {
       </div>
 
       {/* Active Timer */}
-      {dashboard?.activeTimer && (
+      {activeTimer && (
         <div className="bg-white rounded-xl border border-blue-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -158,7 +184,7 @@ export default function Dashboard() {
                 <h2 className="text-lg font-semibold text-gray-900">Timer Running</h2>
               </div>
               <p className="text-gray-500 text-sm">
-                {dashboard.activeTimer.projectName || 'Project'} — {dashboard.activeTimer.description || 'No description'}
+                {projectNameForTimer(activeTimer)} — {activeTimer.description || 'No description'}
               </p>
             </div>
             <div className="flex items-center gap-4">
@@ -177,7 +203,7 @@ export default function Dashboard() {
       )}
 
       {/* Quick Start Timer */}
-      {!dashboard?.activeTimer && (
+      {!activeTimer && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Start Timer</h2>
           <div className="flex flex-col sm:flex-row gap-3">
@@ -217,36 +243,39 @@ export default function Dashboard() {
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Recent Time Logs</h2>
         </div>
-        {dashboard?.recentLogs && dashboard.recentLogs.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Hours</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {dashboard.recentLogs.map((log, i) => (
-                  <tr key={log._id || log.id || i} className="hover:bg-gray-50">
-                    <td className="px-6 py-3 text-sm text-gray-600">
-                      {new Date(log.date || log.startTime).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-3 text-sm font-medium text-gray-900">{log.projectName || '—'}</td>
-                    <td className="px-6 py-3 text-sm text-gray-600">{log.description || '—'}</td>
-                    <td className="px-6 py-3 text-sm text-gray-900 text-right font-medium">
-                      {(log.hours || log.duration || 0).toFixed(2)}
-                    </td>
+        {(() => {
+          const recent = (dashboard?.recentTimeLogs || dashboard?.recentLogs || []).filter((l) => !l.running);
+          return recent.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Hours</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="px-6 py-12 text-center text-gray-400 text-sm">No recent time logs</div>
-        )}
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {recent.map((log, i) => (
+                    <tr key={log._id || log.id || i} className="hover:bg-gray-50">
+                      <td className="px-6 py-3 text-sm text-gray-600">
+                        {new Date(log.date || log.startTime).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{log.projectName || projectNameForTimer(log) || '—'}</td>
+                      <td className="px-6 py-3 text-sm text-gray-600">{log.description || '—'}</td>
+                      <td className="px-6 py-3 text-sm text-gray-900 text-right font-medium">
+                        {Number(log.hours || log.duration || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="px-6 py-12 text-center text-gray-400 text-sm">No recent time logs</div>
+          );
+        })()}
       </div>
 
       {/* Subscribe */}

@@ -74,7 +74,7 @@ export default function Invoices() {
               </p>
               <div className="pt-3 border-t border-gray-100 flex items-center gap-1.5">
                 <DollarSign className="w-4 h-4 text-green-600" />
-                <span className="text-lg font-bold text-green-600">${(invoice.total || invoice.totalAmount || 0).toFixed(2)}</span>
+                <span className="text-lg font-bold text-green-600">${Number(invoice.total || invoice.totalAmount || 0).toFixed(2)}</span>
               </div>
             </Link>
           ))}
