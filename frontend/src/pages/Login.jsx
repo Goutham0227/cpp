@@ -27,6 +27,16 @@ export default function Login() {
     }
   };
 
+  const fillDemo = (type) => {
+    if (type === 'admin') {
+      setEmail('admin@timetrack.com');
+      setPassword('admin123');
+    } else {
+      setEmail('user@timetrack.com');
+      setPassword('user123');
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md">
@@ -80,6 +90,26 @@ export default function Login() {
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-lg">
+            <p className="text-xs font-semibold text-gray-700 mb-2">Demo Credentials</p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => fillDemo('admin')}
+                className="w-full text-left text-xs text-gray-700 hover:bg-blue-100 px-2 py-1.5 rounded transition-colors"
+              >
+                <span className="font-medium text-blue-700">Admin:</span> admin@timetrack.com / admin123
+              </button>
+              <button
+                type="button"
+                onClick={() => fillDemo('user')}
+                className="w-full text-left text-xs text-gray-700 hover:bg-blue-100 px-2 py-1.5 rounded transition-colors"
+              >
+                <span className="font-medium text-blue-700">User:</span> user@timetrack.com / user123
+              </button>
+            </div>
+          </div>
 
           <p className="mt-6 text-center text-sm text-gray-500">
             Don't have an account?{' '}
